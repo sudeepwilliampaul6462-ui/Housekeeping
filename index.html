@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Housekeeping Board</title>
+<style>
+  /* ====== COLOURS & BASICS (edit these to change the look) ====== */
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #1f2933;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent: #2563eb;
+    --dirty: #ef4444;
+    --progress: #f59e0b;
+    --clean: #10b981;
+    --inspected: #3b82f6;
+    --ooo: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: #111827; color: #fff; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .date { font-size: 13px; opacity: .8; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+  /* Summary counters */
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--card); border-radius: 10px; padding: 10px 12px; border-left: 5px solid var(--border); cursor: pointer; }
+  .stat b { display: block; font-size: 22px; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .stat.active { outline: 2px solid var(--accent); }
+
+  /* Toolbar */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  select, input, textarea, button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+  button { cursor: pointer; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-danger { background: #fff; color: var(--dirty); border-color: var(--dirty); }
+
+  /* Room grid */
+  .floor-title { font-size: 14px; color: var(--muted); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .room { background: var(--card); border-radius: 10px; padding: 12px; border-top: 6px solid var(--border); cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.05); position: relative; }
+  .room:hover { box-shadow: 0 3px 8px rgba(0,0,0,.1); }
+  .room .no { font-size: 22px; font-weight: 700; }
+  .room .type { font-size: 12px; color: var(--muted); }
+  .room .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; color: #fff; margin-top: 6px; }
+  .room .meta { font-size: 12px; margin-top: 6px; color: var(--muted); }
+  .room .prio { position: absolute; top: 8px; right: 10px; font-size: 16px; }
+  .room .note { font-size: 12px; margin-top: 6px; background: #fff7ed; padding: 4px 6px; border-radius: 6px; }
+
+  /* Status colours */
+  .s-dirty { border-top-color: var(--dirty); }      .b-dirty { background: var(--dirty); }
+  .s-progress { border-top-color: var(--progress); } .b-progress { background: var(--progress); }
+  .s-clean { border-top-color: var(--clean); }      .b-clean { background: var(--clean); }
+  .s-inspected { border-top-color: var(--inspected); } .b-inspected { background: var(--inspected); }
+  .s-ooo { border-top-color: var(--ooo); }          .b-ooo { background: var(--ooo); }
+
+  /* Pop-up window (modal) */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .modal-bg.open { display: flex; }
+  .modal { background: #fff; border-radius: 12px; padding: 18px; width: 100%; max-width: 420px; max-height: 90vh; overflow-y: auto; }
+  .modal h2 { margin: 0 0 12px; font-size: 18px; }
+  .modal label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  .modal select, .modal input, .modal textarea { width: 100%; }
+  .status-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .status-btns button { color: #fff; border: none; padding: 10px; font-weight: 600; opacity: .55; }
+  .status-btns button.sel { opacity: 1; outline: 3px solid #111827; }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  /* Activity log */
+  .log { background: var(--card); border-radius: 10px; padding: 12px; margin-top: 20px; font-size: 13px; max-height: 260px; overflow-y: auto; }
+  .log div { padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .log time { color: var(--muted); margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1 id="hotelName">Hotel Housekeeping Board</h1>
+    <div class="date" id="today"></div>
+  </div>
+  <button onclick="openSettings()">⚙ Settings</button>
+</header>
+
+<div class="wrap">
+  <!-- Counters: click one to filter by that status -->
+  <div class="summary" id="summary"></div>
+
+  <!-- Filters and actions -->
+  <div class="toolbar">
+    <select id="fFloor" onchange="render()"><option value="">All floors</option></select>
+    <select id="fStaff" onchange="render()"><option value="">All housekeepers</option></select>
+    <select id="fOcc" onchange="render()"><option value="">All occupancy</option></select>
+    <input id="fSearch" placeholder="Search room no." oninput="render()" style="width:140px">
+    <button onclick="exportCSV()">⬇ Export CSV</button>
+    <button class="btn-danger" onclick="newDay()">↻ Start new day</button>
+  </div>
+
+  <div id="rooms"></div>
+
+  <h3 class="floor-title">Activity log (today)</h3>
+  <div class="log" id="log"></div>
+</div>
+
+<!-- Room edit pop-up -->
+<div class="modal-bg" id="roomModal">
+  <div class="modal">
+    <h2 id="mTitle">Room</h2>
+    <label>Cleaning status</label>
+    <div class="status-btns" id="mStatus"></div>
+    <label>Occupancy</label>
+    <select id="mOcc"></select>
+    <label>Assigned housekeeper</label>
+    <select id="mStaff"></select>
+    <label><input type="checkbox" id="mPrio" style="width:auto"> Priority (early arrival / VIP)</label>
+    <label>Notes (e.g. extra towels, maintenance)</label>
+    <textarea id="mNotes" rows="3"></textarea>
+    <div class="actions">
+      <button onclick="closeModal('roomModal')">Cancel</button>
+      <button class="btn-primary" onclick="saveRoom()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings pop-up -->
+<div class="modal-bg" id="setModal">
+  <div class="modal">
+    <h2>Settings</h2>
+    <label>Hotel name</label>
+    <input id="sName">
+    <label>Housekeepers (one per line)</label>
+    <textarea id="sStaff" rows="5"></textarea>
+    <label>Rooms (one per line: number, type) e.g. 101, Double</label>
+    <textarea id="sRooms" rows="8"></textarea>
+    <div class="actions">
+      <button class="btn-danger" onclick="factoryReset()">Reset all data</button>
+      <button onclick="closeModal('setModal')">Cancel</button>
+      <button class="btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =============================================================
+   1. SETTINGS YOU CAN EDIT
+   ============================================================= */
+const STATUSES = {
+  dirty:     "Dirty",
+  progress:  "In progress",
+  clean:     "Clean",
+  inspected: "Inspected",
+  ooo:       "Out of order"
+};
+const OCCUPANCY = {
+  vacant:    "Vacant",
+  occupied:  "Occupied (stayover)",
+  departure: "Check-out today",
+  arrival:   "Arrival today"
+};
+const DEFAULT_STAFF = ["Anna", "Maria", "Priya", "John"];
+
+// 20 rooms: 101–110 and 201–210
+function defaultRooms() {
+  const types = ["Single", "Double", "Twin", "Double", "Family"];
+  const list = [];
+  for (const floor of [1, 2]) {
+    for (let i = 1; i <= 10; i++) {
+      const no = floor * 100 + i;
+      list.push(makeRoom(String(no), types[(i - 1) % types.length]));
+    }
+  }
+  return list;
+}
+function makeRoom(no, type) {
+  return { no, type, status: "dirty", occ: "vacant", staff: "", prio: false, notes: "", updated: "" };
+}
+
+/* =============================================================
+   2. SAVING & LOADING (stored in this browser)
+   ============================================================= */
+const KEY = "housekeeping-app-v1";
+let state;
+
+function load() {
+  try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) { state = null; }
+  if (!state) state = { hotel: "Hotel Housekeeping Board", rooms: defaultRooms(), staff: DEFAULT_STAFF, log: [] };
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { alert("Could not save on this device."); }
+}
+function addLog(text) {
+  state.log.unshift({ t: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text });
+  state.log = state.log.slice(0, 200);
+}
+
+/* =============================================================
+   3. DRAWING THE SCREEN
+   ============================================================= */
+let statusFilter = "";
+
+function floorOf(no) { return no.length > 2 ? no.slice(0, no.length - 2) : "1"; }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function fillFilters() {
+  const floors = [...new Set(state.rooms.map(r => floorOf(r.no)))];
+  setOptions("fFloor", "All floors", floors.map(f => [f, "Floor " + f]));
+  setOptions("fStaff", "All housekeepers", [["__none", "Unassigned"], ...state.staff.map(s => [s, s])]);
+  setOptions("fOcc", "All occupancy", Object.entries(OCCUPANCY));
+}
+function setOptions(id, first, pairs) {
+  const el = document.getElementById(id), keep = el.value;
+  el.innerHTML = `<option value="">${first}</option>` + pairs.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+  el.value = keep;
+}
+
+function render() {
+  document.getElementById("hotelName").textContent = state.hotel;
+
+  // Counters
+  const counts = {};
+  Object.keys(STATUSES).forEach(k => counts[k] = 0);
+  state.rooms.forEach(r => counts[r.status]++);
+  document.getElementById("summary").innerHTML =
+    `<div class="stat ${statusFilter === "" ? "active" : ""}" onclick="setStatusFilter('')"><b>${state.rooms.length}</b><span>All rooms</span></div>` +
+    Object.entries(STATUSES).map(([k, label]) =>
+      `<div class="stat ${statusFilter === k ? "active" : ""}" style="border-left-color:var(--${k})" onclick="setStatusFilter('${k}')"><b>${counts[k]}</b><span>${label}</span></div>`
+    ).join("");
+
+  // Filters
+  const fFloor = val("fFloor"), fStaff = val("fStaff"), fOcc = val("fOcc"), q = val("fSearch").trim();
+  const list = state.rooms.filter(r =>
+    (!statusFilter || r.status === statusFilter) &&
+    (!fFloor || floorOf(r.no) === fFloor) &&
+    (!fStaff || (fStaff === "__none" ? !r.staff : r.staff === fStaff)) &&
+    (!fOcc || r.occ === fOcc) &&
+    (!q || r.no.includes(q))
+  );
+
+  // Room cards grouped by floor
+  const byFloor = {};
+  list.forEach(r => (byFloor[floorOf(r.no)] = byFloor[floorOf(r.no)] || []).push(r));
+  let html = "";
+  Object.keys(byFloor).sort((a, b) => a - b).forEach(f => {
+    html += `<div class="floor-title">Floor ${esc(f)}</div><div class="grid">`;
+    byFloor[f].forEach(r => {
+      const i = state.rooms.indexOf(r);
+      html += `<div class="room s-${r.status}" onclick="openRoom(${i})">
+        ${r.prio ? '<span class="prio" title="Priority">⭐</span>' : ""}
+        <div class="no">${esc(r.no)}</div>
+        <div class="type">${esc(r.type)} · ${OCCUPANCY[r.occ]}</div>
+        <span class="badge b-${r.status}">${STATUSES[r.status]}</span>
+        <div class="meta">👤 ${r.staff ? esc(r.staff) : "Unassigned"}${r.updated ? " · " + esc(r.updated) : ""}</div>
+        ${r.notes ? `<div class="note">📝 ${esc(r.notes)}</div>` : ""}
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  document.getElementById("rooms").innerHTML = html || "<p>No rooms match these filters.</p>";
+
+  // Log
+  document.getElementById("log").innerHTML = state.log.length
+    ? state.log.map(l => `<div><time>${l.t}</time>${esc(l.text)}</div>`).join("")
+    : "<div>No activity yet.</div>";
+}
+function val(id) { return document.getElementById(id).value; }
+function setStatusFilter(s) { statusFilter = s; render(); }
+
+/* =============================================================
+   4. EDITING A ROOM
+   ============================================================= */
+let editing = -1, pickedStatus = "";
+
+function openRoom(i) {
+  editing = i;
+  const r = state.rooms[i];
+  pickedStatus = r.status;
+  document.getElementById("mTitle").textContent = `Room ${r.no} — ${r.type}`;
+  drawStatusButtons();
+  document.getElementById("mOcc").innerHTML = Object.entries(OCCUPANCY).map(([k, t]) => `<option value="${k}">${t}</option>`).join("");
+  document.getElementById("mOcc").value = r.occ;
+  document.getElementById("mStaff").innerHTML = `<option value="">Unassigned</option>` + state.staff.map(s => `<option>${esc(s)}</option>`).join("");
+  document.getElementById("mStaff").value = r.staff;
+  document.getElementById("mPrio").checked = r.prio;
+  document.getElementById("mNotes").value = r.notes;
+  document.getElementById("roomModal").classList.add("open");
+}
+function drawStatusButtons() {
+  document.getElementById("mStatus").innerHTML = Object.entries(STATUSES).map(([k, t]) =>
+    `<button class="b-${k} ${pickedStatus === k ? "sel" : ""}" onclick="pickedStatus='${k}';drawStatusButtons()">${t}</button>`
+  ).join("");
+}
+function saveRoom() {
+  const r = state.rooms[editing];
+  const changes = [];
+  const newOcc = val("mOcc"), newStaff = val("mStaff"), newPrio = document.getElementById("mPrio").checked, newNotes = document.getElementById("mNotes").value.trim();
+  if (r.status !== pickedStatus) changes.push(`${STATUSES[r.status]} → ${STATUSES[pickedStatus]}`);
+  if (r.occ !== newOcc) changes.push(OCCUPANCY[newOcc]);
+  if (r.staff !== newStaff) changes.push(`assigned to ${newStaff || "nobody"}`);
+  if (r.prio !== newPrio) changes.push(newPrio ? "marked priority" : "priority removed");
+  if (r.notes !== newNotes) changes.push("notes updated");
+  Object.assign(r, { status: pickedStatus, occ: newOcc, staff: newStaff, prio: newPrio, notes: newNotes });
+  if (changes.length) {
+    r.updated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    addLog(`Room ${r.no}: ${changes.join(", ")}`);
+  }
+  save(); closeModal("roomModal"); render();
+}
+function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+
+/* =============================================================
+   5. DAILY TOOLS
+   ============================================================= */
+function newDay() {
+  if (!confirm("Start a new day? Occupied, check-out and inspected rooms go back to Dirty, priorities and today's log are cleared. Out-of-order rooms stay as they are.")) return;
+  state.rooms.forEach(r => {
+    if (r.status !== "ooo" && r.occ !== "vacant") r.status = "dirty";
+    if (r.occ === "departure") r.occ = "vacant";
+    if (r.occ === "arrival") r.occ = "occupied";
+    r.prio = false; r.updated = "";
+  });
+  state.log = [];
+  addLog("New day started");
+  save(); render();
+}
+
+function exportCSV() {
+  const rows = [["Room", "Type", "Status", "Occupancy", "Housekeeper", "Priority", "Notes", "Last update"]];
+  state.rooms.forEach(r => rows.push([r.no, r.type, STATUSES[r.status], OCCUPANCY[r.occ], r.staff, r.prio ? "Yes" : "", r.notes, r.updated]));
+  const csv = rows.map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `housekeeping-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+}
+
+/* =============================================================
+   6. SETTINGS
+   ============================================================= */
+function openSettings() {
+  document.getElementById("sName").value = state.hotel;
+  document.getElementById("sStaff").value = state.staff.join("\n");
+  document.getElementById("sRooms").value = state.rooms.map(r => `${r.no}, ${r.type}`).join("\n");
+  document.getElementById("setModal").classList.add("open");
+}
+function saveSettings() {
+  state.hotel = document.getElementById("sName").value.trim() || "Hotel Housekeeping Board";
+  state.staff = document.getElementById("sStaff").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const old = Object.fromEntries(state.rooms.map(r => [r.no, r]));
+  state.rooms = document.getElementById("sRooms").value.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+    const [no, type = "Standard"] = l.split(",").map(s => s.trim());
+    return old[no] ? Object.assign(old[no], { type }) : makeRoom(no, type);
+  });
+  addLog("Settings updated");
+  save(); closeModal("setModal"); fillFilters(); render();
+}
+function factoryReset() {
+  if (!confirm("Delete ALL data on this device and go back to the default 20 rooms?")) return;
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  load(); closeModal("setModal"); fillFilters(); render();
+}
+
+/* =============================================================
+   7. START THE APP
+   ============================================================= */
+document.getElementById("today").textContent = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+load(); fillFilters(); render();
+</script>
+</body>
